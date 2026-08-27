@@ -1,0 +1,20 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+python-dotenv>=1.0
+
+google-cloud-storage>=2.16
+google-cloud-aiplatform>=1.60
+
+sentence-transformers>=3.0
+chromadb>=0.5
+rank_bm25>=0.2.2
+jieba>=0.42
+requests>=2.32
+
+# LoRA backend（若 GENERATION_BACKEND=gemini 且不打算之後切換，可以拿掉這四個，
+# image會小很多，但建議先留著，之後切換backend不用重build）
+torch>=2.3
+transformers>=4.45
+peft>=0.12
+bitsandbytes>=0.43
