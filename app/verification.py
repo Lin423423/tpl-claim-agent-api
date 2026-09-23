@@ -9,9 +9,31 @@ ACTUAL_EXPENSE_ITEMS = {"醫療費用", "交通費用", "看護費用", "工作�
 ESTIMATABLE_ITEMS = {"精神慰撫金", "其他傷害賠償"}
 
 
-def apply_verification(result: dict) -> dict:
+def check_citation_grounded(item, case_context):
+    """檢查這個理賠項目引用的案號/判決，是不是真的出現在這次檢索到的
+    結果裡。回傳 (有無引用, 是否為捏造引用)。"""
+    cited_cases = set((item.get("similar_case_reference") or {}).get("case_nos") or [])
+    cited_judg = set((item.get("cited_judgment_reference") or {}).get("chunk_ids") or [])
+
+    if not cited_cases and not cited_judg:
+        return False, False
+
+    retrieved_case_nos = {c["case_no"] for c in case_context.get("similar_cases", [])}
+    retrieved_judg_ids = {j["source_id"] for j in case_context.get("judgment_excerpts", [])}
+
+    fabricated_case = bool(cited_cases - retrieved_case_nos)
+    fabricated_judg = bool(cited_judg - retrieved_judg_ids)
+
+    return True, (fabricated_case or fabricated_judg)
+
+
+def apply_verification(result: dict, case_context: dict = None) -> dict:
     """保留LLM判斷的基礎金額suggested_amount，由Python統一依被保險人肇責比例計算
-    final_amount，並以final_amount加總total_suggested_amount。"""
+    final_amount，並以final_amount加總total_suggested_amount。
+
+    新增：如果 case_context 有提供，會同時檢查每個項目的引用（案號/判決）
+    是否真的存在於這次的檢索結果中，捏造引用的項目強制改為 pending_evidence，
+    不讓沒有依據的金額進入最終建議總額。"""
     if not isinstance(result, dict):
         return result
 
@@ -22,10 +44,28 @@ def apply_verification(result: dict) -> dict:
         return result
 
     verified_total = 0
+    fabrication_flagged = 0
 
     for item in items:
         if not isinstance(item, dict):
             continue
+
+        # ---- 引用真實性檢查，優先於其他驗算 ----
+        if case_context is not None:
+            has_citation, fabricated = check_citation_grounded(item, case_context)
+            item["_citation_has_reference"] = has_citation
+            item["_citation_fabricated"] = fabricated
+            if fabricated:
+                item["status"] = "pending_evidence"
+                item["suggested_amount"] = None
+                item["final_amount"] = None
+                original_reasoning = item.get("reasoning_summary", "")
+                item["reasoning_summary"] = (
+                    "【系統自動攔截】模型原始回答引用了本次檢索結果中不存在的案號或判決，"
+                    "已強制標記為證據不足，不納入建議金額。原始推理內容：" + original_reasoning
+                )
+                fabrication_flagged += 1
+                continue
 
         status = item.get("status")
         amount_basis = item.get("amount_basis") or {}
@@ -78,4 +118,5 @@ def apply_verification(result: dict) -> dict:
         verified_total += item["final_amount"]
 
     result["total_suggested_amount"] = int(round(verified_total))
+    result["_fabrication_flagged_count"] = fabrication_flagged
     return result

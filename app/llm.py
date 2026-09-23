@@ -732,6 +732,10 @@ amount_basis.liability_pct = 20
 
 【reasoning_summary 規則】
 
+在你輸出 reasoning_summary 之前，請先自問：「我剛剛講的這個案號/判決，
+是不是真的出現在上面【相似案例】【相關法院判決先例】清單裡？」
+如果不是，請不要寫出這個引用，改用 pending_evidence。
+
 reasoning_summary 必須說明：
 
 - 本項目的金額依據。
@@ -846,6 +850,7 @@ def build_tpl_claim_prompt(case_context: dict, generation_backend: str = None) -
     area = case_context.get("accident_area", "未提供")
     fault = case_context.get("own_fault_pct", "未提供")
     injury = case_context.get("injury_desc", "未提供")
+    evidence = case_context.get("evidence_summary") or "（未提供實際證據資料）"
 
     parts = [
         "你是產物保險公司的第三人責任險（TPL）理賠金額分析助理。",
@@ -857,6 +862,7 @@ def build_tpl_claim_prompt(case_context: dict, generation_backend: str = None) -
         f"事故地區：{area}",
         f"本車肇責比例：{fault}%",
         f"傷勢描述：{injury}",
+        f"本案已知理賠證據資料：{evidence}",
         "",
     ]
 
@@ -955,7 +961,7 @@ def _load_lora_if_needed():
     _lora_tokenizer = AutoTokenizer.from_pretrained(config.LORA_MODEL_PATH)
 
 
-def generate_with_lora(prompt: str, max_new_tokens: int = 1024) -> str:
+def generate_with_lora(prompt: str, max_new_tokens: int = 8192) -> str:
     import torch
     if not os.path.exists(config.LORA_MODEL_PATH):
         raise RuntimeError(f"LoRA模型路徑 {config.LORA_MODEL_PATH} 不存在，請確認已下載，或改用 backend='gemini'")
@@ -983,10 +989,12 @@ def generate_claim_suggestion(case_context: dict, backend: str = None) -> dict:
             return {"error": f"Gemini 生成失敗：{str(e)}"}
 
     if backend == "lora":
+        raw_text = None
         try:
-            raw_text = generate_with_lora(prompt)
+            raw_text = generate_with_lora(prompt, max_new_tokens=8192)
             return extract_json_from_response(raw_text)
         except Exception as e:
-            return {"error": f"LoRA 生成失敗：{str(e)}"}
+            # 保留原始輸出，JSON 解析失敗時才有辦法回頭診斷是截斷還是格式問題
+            return {"error": f"LoRA 生成失敗：{str(e)}", "raw_output": raw_text}
 
     return {"error": f"不支援的 backend：{backend}"}

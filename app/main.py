@@ -36,6 +36,15 @@ class ClaimRequest(BaseModel):
     accident_area: str = Field(..., description="事故地區，例如「台北市」")
     own_fault_pct: float = Field(..., ge=0, le=100, description="本車肇責比例（0~100）")
     injury_desc: str = Field(..., description="傷勢描述")
+    evidence_summary: Optional[str] = Field(
+        None,
+        description=(
+            "本案已知的實際佐證資料摘要（就醫紀錄、薪資證明、醫囑休養建議等），"
+            "由呼叫端（claim-intake，OCR辨識上傳文件後組出來的摘要文字）提供。"
+            "不提供的話，模型對醫療費用/看護費用/工作損失等實際支出項目"
+            "只能誠實回報證據不足，不會虛構金額。"
+        ),
+    )
     backend: Optional[str] = Field(
         None, description="覆寫預設的生成後端，'gemini' 或 'lora'，不填則用服務預設值"
     )
@@ -64,6 +73,7 @@ def create_claim_suggestion(req: ClaimRequest, x_api_key: Optional[str] = Header
         accident_area=req.accident_area,
         own_fault_pct=req.own_fault_pct,
         injury_desc=req.injury_desc,
+        evidence_summary=req.evidence_summary,
         backend=req.backend,
     )
 

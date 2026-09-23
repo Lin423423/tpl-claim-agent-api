@@ -31,7 +31,16 @@ def get_case_approved_items(case_no):
     ]
 
 
-def tpl_claim_agent(accident_area: str, own_fault_pct: float, injury_desc: str, backend: str = None) -> dict:
+def tpl_claim_agent(accident_area: str, own_fault_pct: float, injury_desc: str,
+                     evidence_summary: str = None, backend: str = None) -> dict:
+    """端對端理賠代理人：檢索 + 生成 + 驗算。
+
+    evidence_summary 為選填參數——這是本案「已知的實際佐證資料摘要」
+    （例如就醫紀錄、薪資證明、醫囑休養建議等），由呼叫端（claim-intake，
+    OCR辨識上傳文件後組出來的摘要文字）傳入，這支API本身不查詢任何
+    案件資料庫。沒有傳的話，prompt裡會顯示「未提供實際證據資料」，
+    模型對「實際支出項目」（醫療費用/看護費用/工作損失等）就只能
+    誠實回報 pending_evidence，不會虛構金額。"""
     query_text = f"{accident_area}發生的車禍，本車肇責{own_fault_pct}%，{injury_desc}"
 
     similar_cases_raw = retrieval.retrieve(query_text, source="case", top_k=5)
@@ -42,6 +51,7 @@ def tpl_claim_agent(accident_area: str, own_fault_pct: float, injury_desc: str, 
         "accident_area": accident_area,
         "own_fault_pct": own_fault_pct,
         "injury_desc": injury_desc,
+        "evidence_summary": evidence_summary,
         "similar_cases": [
             {
                 "rank": i + 1,
@@ -76,7 +86,7 @@ def tpl_claim_agent(accident_area: str, own_fault_pct: float, injury_desc: str, 
 
     result = llm.generate_claim_suggestion(case_context, backend=backend)
     if "error" not in result:
-        result = verification.apply_verification(result)
+        result = verification.apply_verification(result, case_context=case_context)
 
     result["_retrieved_context"] = case_context
     return result
